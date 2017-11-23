@@ -91,8 +91,11 @@ container_pull = repository_rule(
     implementation = _impl,
 )
 
+def _config_json_output(name):
+  return name + "/config.json"
+
 def _pull_local_outputs(name, num_layers):
-    outputs = {"config": name + "/config.json"}
+    outputs = {"config": _config_json_output(name) }
     for idx in range(0, num_layers):
       padding = (3 - len(str(idx))) * "0"
       outputs["layer_%s" % idx] = name + "/" + padding + "%s.tar.gz" % idx
@@ -131,15 +134,16 @@ def _pull_local_impl(ctx):
     ctx.action(
         command = """
         {puller} {args}
-        cat {output_directory}/config.json | python -c "import json; import sys; config = json.loads(sys.stdin.read()); expected_num_layers = len(config['rootfs']['diff_ids']); assert expected_num_layers == {num_layers}, 'Incorrect number of layers specified. Specified {num_layers}, actual %s. Please update num_layers' % expected_num_layers"
+        cat {config} | python -c "import json; import sys; config = json.loads(sys.stdin.read()); expected_num_layers = len(config['rootfs']['diff_ids']); assert expected_num_layers == {num_layers}, 'Incorrect number of layers specified. Specified {num_layers}, actual %s. Please update num_layers' % expected_num_layers"
         """.format(
           puller=ctx.executable._puller.path,
           args=" ".join(args),
           output_directory=output_directory,
+          config=ctx.outputs.config.path,
           num_layers=ctx.attr.num_layers,
         ),
         inputs=[ctx.executable._puller],
-        execution_requirements={"local": "1"},
+        execution_requirements={"requires-network": "1"},
         outputs=outputs,
     )
 
@@ -171,7 +175,7 @@ def container_pull_local(name, num_layers, **kwargs):
 
   container_import(
     name = name,
-    config = ":config.json",
+    config = _config_json_output(pull_name),
     layers = layers,
   )
 
