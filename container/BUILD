@@ -13,6 +13,8 @@
 # limitations under the License.
 package(default_visibility = ["//visibility:public"])
 
+load("//container:pull.bzl", "container_pull_local")
+
 licenses(["notice"])  # Apache 2.0
 
 exports_files(["push-tag.sh.tpl"])
@@ -134,4 +136,12 @@ py_test(
     srcs = ["image_test.py"],
     data = TEST_DATA,
     deps = ["@containerregistry//:containerregistry"],
+)
+
+container_pull_local(
+    name = "test",
+    registry = "index.docker.io",
+    repository = "library/ubuntu",
+    tag = "14.04",
+    num_layers=5,
 )

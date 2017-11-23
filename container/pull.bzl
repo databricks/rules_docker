@@ -90,6 +90,77 @@ container_pull = repository_rule(
     implementation = _impl,
 )
 
+def _pull_outputs(name, num_layers):
+    outputs = {}
+    for idx in range(0, num_layers):
+      padding = (3 - len(str(idx))) * "0"
+      outputs["layer_%s" % idx] = padding + "%s.tar.gz" % idx
+      outputs["sha256_%s" % idx] = padding + "%s.sha256" % idx
+    return outputs
+
+def _pull_local_impl(ctx):
+  """Core implementation of container_pull."""
+
+  if ctx.attr.num_layers <= 0:
+    fail("num_layers must be greater than 0")
+
+  outputs = [getattr(ctx.outputs, k) for k in _pull_outputs(ctx.attr.name, ctx.attr.num_layers).keys()]
+  output_directory = outputs[0].dirname
+
+  args = [
+      "--directory", output_directory
+  ]
+
+  # If a digest is specified, then pull by digest.  Otherwise, pull by tag.
+  if ctx.attr.digest:
+    args += [
+        "--name", "{registry}/{repository}@{digest}".format(
+            registry=ctx.attr.registry,
+            repository=ctx.attr.repository,
+            digest=ctx.attr.digest)
+    ]
+  else:
+    args += [
+        "--name", "{registry}/{repository}:{tag}".format(
+            registry=ctx.attr.registry,
+            repository=ctx.attr.repository,
+            tag=ctx.attr.tag)
+    ]
+
+    ctx.action(
+        command = """
+        {puller} {args}
+        cat {output_directory}/config.json | python -c "import json; import sys; config = json.loads(sys.stdin.read()); expected_num_layers = len(config['rootfs']['diff_ids']); assert expected_num_layers == {num_layers}, 'Incorrect number of layers specified. Specified {num_layers}, actual %s. Please update num_layers' % expected_num_layers"
+        """.format(
+          puller=ctx.executable._puller.path,
+          args=" ".join(args),
+          output_directory=output_directory,
+          num_layers=ctx.attr.num_layers,
+        ),
+        inputs=[ctx.executable._puller],
+        execution_requirements={"local": "1"},
+        outputs=outputs,
+    )
+
+
+container_pull_local = rule(
+    attrs = {
+        "registry": attr.string(mandatory = True),
+        "repository": attr.string(mandatory = True),
+        "digest": attr.string(),
+        "tag": attr.string(default = "latest"),
+        "num_layers": attr.int(mandatory = True),
+        "_puller": attr.label(
+            executable = True,
+            default = Label("@puller//file:puller.par"),
+            cfg = "host",
+            allow_files=True,
+        ),
+    },
+    implementation = _pull_local_impl,
+    outputs = _pull_outputs
+)
+
 """Pulls a container image.
 
 This rule pulls a container image into our intermediate format.  The
