@@ -17,6 +17,7 @@ This wraps the containerregistry.tools.fast_puller executable in a
 Bazel rule for downloading base images without a Docker client to
 construct new images.
 """
+load("@io_bazel_rules_docker//container:import.bzl", "container_import")
 
 def python(repository_ctx):
   if "BAZEL_PYTHON" in repository_ctx.os.environ:
@@ -90,12 +91,12 @@ container_pull = repository_rule(
     implementation = _impl,
 )
 
-def _pull_outputs(name, num_layers):
-    outputs = {}
+def _pull_local_outputs(name, num_layers):
+    outputs = {"config": name + "/config.json"}
     for idx in range(0, num_layers):
       padding = (3 - len(str(idx))) * "0"
-      outputs["layer_%s" % idx] = padding + "%s.tar.gz" % idx
-      outputs["sha256_%s" % idx] = padding + "%s.sha256" % idx
+      outputs["layer_%s" % idx] = name + "/" + padding + "%s.tar.gz" % idx
+      outputs["sha256_%s" % idx] = name + "/" + padding + "%s.sha256" % idx
     return outputs
 
 def _pull_local_impl(ctx):
@@ -104,7 +105,7 @@ def _pull_local_impl(ctx):
   if ctx.attr.num_layers <= 0:
     fail("num_layers must be greater than 0")
 
-  outputs = [getattr(ctx.outputs, k) for k in _pull_outputs(ctx.attr.name, ctx.attr.num_layers).keys()]
+  outputs = [getattr(ctx.outputs, k) for k in _pull_local_outputs(ctx.attr.name, ctx.attr.num_layers).keys()]
   output_directory = outputs[0].dirname
 
   args = [
@@ -143,7 +144,7 @@ def _pull_local_impl(ctx):
     )
 
 
-container_pull_local = rule(
+_container_pull_local = rule(
     attrs = {
         "registry": attr.string(mandatory = True),
         "repository": attr.string(mandatory = True),
@@ -158,8 +159,21 @@ container_pull_local = rule(
         ),
     },
     implementation = _pull_local_impl,
-    outputs = _pull_outputs
+    outputs = _pull_local_outputs,
 )
+
+def container_pull_local(name, num_layers, **kwargs):
+  pull_name = name + "_pull"
+
+  _container_pull_local(name = pull_name, num_layers = num_layers, **kwargs)
+
+  layers = [layer for layer in _pull_local_outputs(pull_name, num_layers).values() if layer.endswith("tar.gz")]
+
+  container_import(
+    name = name,
+    config = ":config.json",
+    layers = layers,
+  )
 
 """Pulls a container image.
 
