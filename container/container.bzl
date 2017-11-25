@@ -18,7 +18,7 @@ load("//container:flatten.bzl", "container_flatten")
 load("//container:image.bzl", "container_image", "image")
 load("//container:import.bzl", "container_import")
 load("//container:load.bzl", "container_load")
-load("//container:pull.bzl", "container_pull")
+load("//container:pull.bzl", "container_pull", "container_pull_local")
 load("//container:push.bzl", "container_push")
 
 container = struct(

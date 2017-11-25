@@ -138,6 +138,7 @@ py_test(
     deps = ["@containerregistry//:containerregistry"],
 )
 
+"""
 container_pull_local(
     name = "test",
     registry = "index.docker.io",
@@ -145,3 +146,4 @@ container_pull_local(
     tag = "14.04",
     num_layers=5,
 )
+"""
