@@ -144,14 +144,14 @@ def _get_base_config(ctx):
     l = _get_layers(ctx, ctx.attr.base, ctx.files.base)
     return l.get("config")
 
-def _image_config(ctx, layer_name, entrypoint=None, cmd=None, env=None):
+def _image_config(ctx, layer_name, entrypoint=None, cmd=None, env=None, labels=None):
   """Create the configuration for a new container image."""
   config = ctx.new_file(ctx.label.name + ".config")
 
   label_file_dict = _string_to_label(
       ctx.files.label_files, ctx.attr.label_file_strings)
 
-  labels = dict()
+  labels = labels or dict()
   for l in ctx.attr.labels:
     fname = ctx.attr.labels[l]
     if fname[0] == "@":
@@ -218,7 +218,7 @@ def _repository_name(ctx):
 
 def _impl(ctx, files=None, file_map=None, empty_files=None, directory=None,
           entrypoint=None, cmd=None, symlinks=None, output=None, env=None,
-          debs=None, tars=None):
+          debs=None, tars=None, labels=None):
   """Implementation for the container_image rule.
 
   Args:
@@ -259,7 +259,7 @@ def _impl(ctx, files=None, file_map=None, empty_files=None, directory=None,
 
   # Generate the new config using the attributes specified and the diff_id
   config_file, config_digest = _image_config(
-      ctx, diff_id, entrypoint=entrypoint, cmd=cmd, env=env)
+      ctx, diff_id, entrypoint=entrypoint, cmd=cmd, env=env, labels=labels)
 
   # Construct a temporary name based on the build target.
   tag_name = _repository_name(ctx) + ":" + ctx.label.name
