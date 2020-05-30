@@ -97,7 +97,7 @@ def _impl(ctx):
       image["config"]
   ] + image.get("blobsum", []) + image.get("zipped_layer", []) +
   stamp_inputs + ([image["legacy"]] if image.get("legacy") else []) +
-  list(ctx.attr._pusher.default_runfiles.files)))
+  ctx.attr._pusher.default_runfiles.files.to_list()))
 
 container_push = rule(
     attrs = dict({
