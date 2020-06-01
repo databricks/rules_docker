@@ -102,8 +102,7 @@ def _impl(ctx):
 container_push = rule(
     attrs = dict({
         "image": attr.label(
-            allow_files = [".tar"],
-            single_file = True,
+            allow_single_file = [".tar"],
             mandatory = True,
         ),
         "registry": attr.string(mandatory = True),
@@ -121,8 +120,7 @@ container_push = rule(
         "domain": attr.string(),
         "_tag_tpl": attr.label(
             default = Label("//container:push-tag.sh.tpl"),
-            single_file = True,
-            allow_files = True,
+            allow_single_file = True,
         ),
         "_pusher": attr.label(
             default = Label("@containerregistry//:pusher"),
