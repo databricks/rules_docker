@@ -14,6 +14,7 @@
 """This tool build tar files from a list of inputs."""
 
 from contextlib import contextmanager
+import argparse
 import os
 import os.path
 import sys
@@ -22,58 +23,6 @@ import tarfile
 import tempfile
 
 from tools.build_defs.pkg import archive
-from third_party.py import gflags
-
-gflags.DEFINE_string('output', None, 'The output file, mandatory')
-gflags.MarkFlagAsRequired('output')
-
-gflags.DEFINE_multistring('file', [], 'A file to add to the layer')
-
-gflags.DEFINE_multistring('empty_file', [], 'An empty file to add to the layer')
-
-gflags.DEFINE_string(
-    'mode', None, 'Force the mode on the added files (in octal).')
-
-gflags.DEFINE_multistring('tar', [], 'A tar file to add to the layer')
-
-gflags.DEFINE_multistring('deb', [], 'A debian package to add to the layer')
-
-gflags.DEFINE_multistring(
-    'link', [],
-    'Add a symlink a inside the layer ponting to b if a:b is specified')
-gflags.RegisterValidator(
-    'link',
-    lambda l: all(value.find(':') > 0 for value in l),
-    message='--link value should contains a : separator')
-
-gflags.DEFINE_string(
-    'directory', None, 'Directory in which to store the file inside the layer')
-
-gflags.DEFINE_string(
-    'compression', None, 'Compression (`gz` or `bz2`), default is none.')
-
-gflags.DEFINE_multistring(
-    'modes', None,
-    'Specific mode to apply to specific file (from the file argument),'
-    ' e.g., path/to/file=0455.')
-
-gflags.DEFINE_multistring('owners', None,
-                          'Specify the numeric owners of individual files, '
-                          'e.g. path/to/file=0.0.')
-
-gflags.DEFINE_string('owner', '0.0',
-                     'Specify the numeric default owner of all files,'
-                     ' e.g., 0.0')
-
-gflags.DEFINE_string('owner_name', None,
-                     'Specify the owner name of all files, e.g. root.root.')
-
-gflags.DEFINE_multistring('owner_names', None,
-                          'Specify the owner names of individual files, e.g. '
-                          'path/to/file=root.root.')
-
-FLAGS = gflags.FLAGS
-
 
 class TarFile(object):
   """A class to generates a Docker layer."""
@@ -259,7 +208,8 @@ class TarFile(object):
     if not pkg_metadata_found:
       raise self.DebError(deb + ' does not contains a control file!')
 
-def main(unused_argv):
+
+def main(FLAGS):
   # Parse modes arguments
   default_mode = None
   if FLAGS.mode:
@@ -326,4 +276,54 @@ def main(unused_argv):
 
 
 if __name__ == '__main__':
-  main(FLAGS(sys.argv))
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--output', type=str, required=True,
+    help='The output file, mandatory')
+
+  parser.add_argument('--file', default=[], type=str, action='append',
+    help='A file to add to the layer')
+
+  parser.add_argument('--empty_file', type=str, default=[], action='append',
+    help='An empty file to add to the layer')
+
+  parser.add_argument('--mode', type=str,
+    help='Force the mode on the added files (in octal).')
+
+  parser.add_argument('--tar', type=str, default=[], action='append',
+    help='A tar file to add to the layer')
+
+  parser.add_argument('--deb', type=str, default=[], action='append',
+    help='A debian package to add to the layer')
+
+  def validate_link(l):
+    if not all([value.find(':') > 0 for value in l]):
+      raise argparse.ArgumentTypeError(msg)
+    return l
+
+  parser.add_argument('--link', type=validate_link, default=[], action='append',
+    help='Add a symlink a inside the layer ponting to b if a:b is specified')
+
+  parser.add_argument('--directory', type=str,
+    help='Directory in which to store the file inside the layer')
+
+  parser.add_argument('--compression', type=str,
+    help='Compression (`gz` or `bz2`), default is none.')
+
+  parser.add_argument('--modes', type=str, default=None, action='append',
+    help='Specific mode to apply to specific file (from the file argument),'
+    ' e.g., path/to/file=0o455.')
+
+  parser.add_argument('--owners', type=str, default=None, action='append',
+    help='Specific mode to apply to specific file (from the file argument),'
+    ' e.g., path/to/file=0o455.')
+
+  parser.add_argument('--owner', type=str, default='0.0',
+    help='Specify the numeric default owner of all files, e.g., 0.0')
+
+  parser.add_argument('--owner_name', type=str,
+    help='Specify the owner name of all files, e.g. root.root.')
+
+  parser.add_argument('--owner_names', type=str, default=None, action='append',
+    help='Specify the owner names of individual files, e.g. path/to/file=root.root.')
+
+  main(parser.parse_args())
