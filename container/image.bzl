@@ -127,7 +127,7 @@ def _build_layer(ctx, files=None, file_map=None, empty_files=None,
 
   ctx.action(
       executable = build_layer,
-      arguments = ["--flagfile=" + arg_file.path],
+      arguments = ["@" + arg_file.path],
       inputs = files + file_map.values() + tars + debs + [arg_file],
       outputs = [layer],
       use_default_shell_env=True,

@@ -276,7 +276,7 @@ def main(FLAGS):
 
 
 if __name__ == '__main__':
-  parser = argparse.ArgumentParser()
+  parser = argparse.ArgumentParser(fromfile_prefix_chars="@")
   parser.add_argument('--output', type=str, required=True,
     help='The output file, mandatory')
 
@@ -296,9 +296,9 @@ if __name__ == '__main__':
     help='A debian package to add to the layer')
 
   def validate_link(l):
-    if not all([value.find(':') > 0 for value in l]):
-      raise argparse.ArgumentTypeError(msg)
-    return l
+    if l.find(':') > 0:
+      return l
+    raise argparse.ArgumentTypeError("--link value should contain a : separator")
 
   parser.add_argument('--link', type=validate_link, default=[], action='append',
     help='Add a symlink a inside the layer ponting to b if a:b is specified')
