@@ -122,10 +122,10 @@ def _build_layer(ctx, files=None, file_map=None, empty_files=None,
       fail("The source of a symlink cannot contain ':', got: %s" % k)
   args += ["--link=%s:%s" % (k, symlinks[k])
            for k in symlinks]
-  arg_file = ctx.new_file(ctx.label.name + ".layer.args")
-  ctx.file_action(arg_file, "\n".join(args))
+  arg_file = ctx.actions.declare_file(ctx.label.name + ".layer.args")
+  ctx.actions.write(arg_file, "\n".join(args))
 
-  ctx.action(
+  ctx.actions.run(
       executable = build_layer,
       arguments = ["@" + arg_file.path],
       inputs = files + file_map.values() + tars + debs + [arg_file],
@@ -148,7 +148,7 @@ def _get_base_config(ctx):
 
 def _image_config(ctx, layer_name, entrypoint=None, cmd=None, env=None):
   """Create the configuration for a new container image."""
-  config = ctx.new_file(ctx.label.name + ".config")
+  config = ctx.actions.declare_file(ctx.label.name + ".config")
 
   label_file_dict = _string_to_label(
       ctx.files.label_files, ctx.attr.label_file_strings)
@@ -200,7 +200,7 @@ def _image_config(ctx, layer_name, entrypoint=None, cmd=None, env=None):
     args += ["--stamp-info-file=%s" % f.path for f in stamp_inputs]
     inputs += stamp_inputs
 
-  ctx.action(
+  ctx.actions.run(
       executable = ctx.executable.create_image_config,
       arguments = args,
       inputs = inputs,

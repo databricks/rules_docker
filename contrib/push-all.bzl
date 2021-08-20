@@ -59,8 +59,8 @@ def _impl(ctx):
 
     runfiles += [image["config"]] + blobsums + blobs
 
-    out = ctx.new_file("%s.%d.push" % (ctx.label.name, index))
-    ctx.template_action(
+    out = ctx.actions.declare_file("%s.%d.push" % (ctx.label.name, index))
+    ctx.expand_template(
         template = ctx.file._tag_tpl,
         substitutions = {
             "%{stamp}": stamp_arg,
@@ -71,13 +71,13 @@ def _impl(ctx):
             "%{container_pusher}": _get_runfile_path(ctx, ctx.executable._pusher),
         },
         output = out,
-        executable=True,
+        is_executable=True,
     )
 
     scripts += [out]
     runfiles += [out]
 
-  ctx.template_action(
+  ctx.expand_template(
     template = ctx.file._all_tpl,
     substitutions = {
       "%{push_statements}": "\n".join([
@@ -86,7 +86,7 @@ def _impl(ctx):
       ]),
     },
     output = ctx.outputs.executable,
-    executable=True,
+    is_executable=True,
   )
 
   return struct(runfiles = ctx.runfiles(files = [

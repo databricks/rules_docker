@@ -71,7 +71,7 @@ def _impl(ctx):
               cert_args += " %s,%s,%s" % (keys[i], certs[i], ctx.attr.domain)
 
 
-  ctx.template_action(
+  ctx.actions.expand_template(
       template = ctx.file._tag_tpl,
       substitutions = {
           "%{tag}": "{registry}/{repository}:{tag}".format(
@@ -89,7 +89,7 @@ def _impl(ctx):
           "%{container_pusher}": _get_runfile_path(ctx, ctx.executable._pusher),
       },
       output = ctx.outputs.executable,
-      executable=True,
+      is_executable=True,
   )
 
   return struct(runfiles = ctx.runfiles(files = [

@@ -19,8 +19,8 @@ load(
 )
 
 def _extract_layers(ctx, artifact):
-  config_file = ctx.new_file(ctx.label.name + "." + artifact.basename + ".config")
-  ctx.action(
+  config_file = ctx.actions.declare_file(ctx.label.name + "." + artifact.basename + ".config")
+  ctx.actions.run(
       executable = ctx.executable.extract_config,
       arguments = [
           "--tarball", artifact.path,
@@ -80,7 +80,7 @@ def assemble(ctx, images, output, stamp=False):
   if stamp:
     args += ["--stamp-info-file=%s" % f.path for f in (ctx.info_file, ctx.version_file)]
     inputs += [ctx.info_file, ctx.version_file]
-  ctx.action(
+  ctx.actions.run(
       executable = ctx.executable.join_layers,
       arguments = args,
       inputs = inputs,
@@ -146,7 +146,7 @@ def incremental_load(ctx, images, output,
           "docker run %s %s \"$@\"" % (run_flags, tag_reference)
       ]
 
-  ctx.template_action(
+  ctx.actions.expand_template(
       template = ctx.file.incremental_load_template,
       substitutions = {
           # If this rule involves stamp variables than load them as bash
@@ -160,7 +160,7 @@ def incremental_load(ctx, images, output,
           "%{run_statements}": "\n".join(run_statements),
       },
       output = output,
-      executable = True)
+      is_executable = True)
 
 tools = {
     "incremental_load_template": attr.label(
