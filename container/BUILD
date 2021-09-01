@@ -66,8 +66,9 @@ py_binary(
 
 py_binary(
     name = "build_tar",
-    srcs = ["build_tar.py"],
+    srcs = ["build_tar.py", "force_py2.py"],
     srcs_version = "PY2AND3",
+    main = "force_py2.py",
     visibility = ["//visibility:public"],
     deps = [
         "@bazel_tools//third_party/py/gflags",
