@@ -87,7 +87,7 @@ EOF
 EOF
 
   set -o pipefail
-  tar c config.json manifest.json | "${DOCKER}" load 2>/dev/null | cut -d':' -f 2- >> "${TEMP_IMAGES}"
+  tar --no-xattrs -c config.json manifest.json | "${DOCKER}" load 2>/dev/null | cut -d':' -f 2- >> "${TEMP_IMAGES}"
 }
 
 function find_diffbase() {
@@ -175,7 +175,12 @@ function import_config() {
     # Only create the link if it doesn't exist.
     # Only add files to MISSING once.
     if [ ! -f "${diff_id}.tar" ]; then
-      ln -s "${layer}" "${diff_id}.tar"
+      # If on macOS, copy as we need to remove xattrs (otherwise source tar is readonly). Otherwise, use symlink.
+      if [ "$(uname)" == "Darwin" ]; then
+        cp "${layer}" "${diff_id}.tar"
+      else
+        ln -s "${layer}" "${diff_id}.tar"
+      fi
       MISSING+=("${diff_id}.tar")
     fi
   done
@@ -191,10 +196,20 @@ EOF
 
   MISSING+=("config.json" "manifest.json")
 
+  # On macOS, clean all xattrs from the files we're going to load.
+  if [ "$(uname)" == "Darwin" ]; then
+    echo "Cleaning xattrs from files on macOS..."
+    for file in "${MISSING[@]}"; do
+      chmod +w "${file}"
+      xattr -c "${file}"
+    done
+  fi
+
   # We minimize reads / writes by symlinking the layers above
   # and then streaming exactly the layers we've established are
   # needed into the Docker daemon.
-  tar cPh "${MISSING[@]}" | tee image.tar | "${DOCKER}" load
+  # Explicitly ensure when generating final tar, we set --no-xattrs to avoid macOS xattr issues.
+  tar --no-xattrs -cPh "${MISSING[@]}" | tee image.tar | "${DOCKER}" load
 }
 
 function tag_layer() {
