@@ -107,7 +107,6 @@ def incremental_load(ctx, images, output,
          "multiple containers (only loading).")
 
   load_statements = []
-  tag_statements = []
   run_statements = []
   # TODO(mattmoor): Consider adding cleanup_statements.
   for tag in images:
@@ -123,8 +122,10 @@ def incremental_load(ctx, images, output,
 
     # Import the config and the subset of layers not present
     # in the daemon.
+    tag_reference = tag if not stamp else tag.replace("{", "${")
     load_statements += [
-        "import_config '%s' %s" % (
+        "import_config \"%s\" '%s' %s" % (
+            tag_reference,
             _get_runfile_path(ctx, image["config"]),
             " ".join([
               "'%s' '%s'" % (
@@ -133,16 +134,6 @@ def incremental_load(ctx, images, output,
               for (diff_id, unzipped_layer) in pairs]))
     ]
 
-    # Now tag the imported config with the specified tag.
-    tag_reference = tag if not stamp else tag.replace("{", "${")
-    tag_statements += [
-        "tag_layer \"%s\" '%s'" % (
-            # Turn stamp variable references into bash variables.
-            # It is notable that the only legal use of '{' in a
-            # tag would be for stamp variables, '$' is not allowed.
-            tag_reference,
-            _get_runfile_path(ctx, image["config_digest"]))
-    ]
     if run:
       run_statements += [
           "docker run %s %s \"$@\"" % (run_flags, tag_reference)

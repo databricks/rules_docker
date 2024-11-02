@@ -112,6 +112,9 @@ function find_diffbase() {
 }
 
 function import_config() {
+  local TAG="$1"
+  shift 1
+
   # Create an image from the image configuration file.
   local name="${RUNFILES}/$1"
   shift 1
@@ -209,15 +212,10 @@ EOF
   # and then streaming exactly the layers we've established are
   # needed into the Docker daemon.
   # Explicitly ensure when generating final tar, we set --no-xattrs to avoid macOS xattr issues.
-  tar --no-xattrs -cPh "${MISSING[@]}" | tee image.tar | "${DOCKER}" load
-}
+  IMAGE_ID=$(tar --no-xattrs -cPh "${MISSING[@]}" | tee image.tar | "${DOCKER}" load | awk '/Loaded image ID/ {print substr($NF, 9)}')
 
-function tag_layer() {
-  local name="$(cat "${RUNFILES}/$2")"
-
-  local TAG="$1"
-  echo "Tagging ${name} as ${TAG}"
-  "${DOCKER}" tag sha256:${name} ${TAG}
+  echo "Tagging ${IMAGE_ID} as ${TAG}"
+  "${DOCKER}" tag sha256:${IMAGE_ID} ${TAG}
 }
 
 function read_variables() {
@@ -238,10 +236,6 @@ function read_variables() {
 # List of 'import_config' statements for all images.
 # This generated and injected by docker_*.
 %{load_statements}
-
-# List of 'tag_layer' statements for all tags.
-# This generated and injected by docker_*.
-%{tag_statements}
 
 # An optional "docker run" statement for invoking a loaded container.
 # This is not executed if the single argument --norun is passed.
