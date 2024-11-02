@@ -212,9 +212,9 @@ EOF
   # and then streaming exactly the layers we've established are
   # needed into the Docker daemon.
   # Explicitly ensure when generating final tar, we set --no-xattrs to avoid macOS xattr issues.
-  IMAGE_NAME=$(tar --no-xattrs -cPh "${MISSING[@]}" | tee image.tar | "${DOCKER}" load | awk '/Loaded image ID/ {print substr($NF, 9)}')
-  IMAGE_ID=$("${DOCKER}" inspect "${IMAGE_NAME}" -f '{{ .Id }}')
-
+  DOCKER_LOAD_OUTPUT_FILE=$(mktemp -t 2>/dev/null)
+  tar --no-xattrs -cPh "${MISSING[@]}" | tee image.tar | "${DOCKER}" load | tee "${DOCKER_LOAD_OUTPUT_FILE}"
+  IMAGE_ID=$(cat $DOCKER_LOAD_OUTPUT_FILE | awk -F'sha256:' '{print $2}')
   echo "Tagging ${IMAGE_ID} as ${TAG}"
   "${DOCKER}" tag sha256:${IMAGE_ID} ${TAG}
 }
