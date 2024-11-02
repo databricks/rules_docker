@@ -149,7 +149,6 @@ def incremental_load(ctx, images, output,
               "read_variables %s" % _get_runfile_path(ctx, f)
               for f in stamp_files]),
           "%{load_statements}": "\n".join(load_statements),
-          "%{tag_statements}": "\n".join(tag_statements),
           "%{run_statements}": "\n".join(run_statements),
       },
       output = output,
