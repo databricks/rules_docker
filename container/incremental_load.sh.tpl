@@ -213,6 +213,7 @@ EOF
   # needed into the Docker daemon.
   # Explicitly ensure when generating final tar, we set --no-xattrs to avoid macOS xattr issues.
   DOCKER_LOAD_OUTPUT_FILE=$(mktemp -t 2>/dev/null)
+  echo "${DOCKER_LOAD_OUTPUT_FILE}" >> "${TEMP_FILES}"
   tar --no-xattrs -cPh "${MISSING[@]}" | tee image.tar | "${DOCKER}" load | tee "${DOCKER_LOAD_OUTPUT_FILE}"
   IMAGE_ID=$(cat $DOCKER_LOAD_OUTPUT_FILE | awk -F'sha256:' '{print $2}')
   echo "Tagging ${IMAGE_ID} as ${TAG}"
