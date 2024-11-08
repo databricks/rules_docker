@@ -77,6 +77,12 @@ py_binary(
     ],
 )
 
+py_binary(
+    name = "registry_tool",
+    srcs = ["registry_tool.py"],
+    deps = ["@bazel_tools//tools/python/runfiles"]
+)
+
 TEST_TARGETS = [
     "base_with_entrypoint",
     "base_with_volume",
