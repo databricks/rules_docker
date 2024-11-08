@@ -77,7 +77,7 @@ Qq00S/RDP9+/0fzd25DGbCd/AQ0uXGpeDEy+gAHW5c3B++r+ZHoGuqnm/eW95RiV
 EjOoZgP/83Q6lrXBDYwk9e284aqWhwvrzDDD5VSOUOLwH5f7B+ZVWYB9yXcfen6d
 LRUhi1KbE8LpOo6yrw==
 -----END CERTIFICATE-----
-"""
+""" # gitleaks:allow
 
 
 CONFIG_MEDIA_TYPE = "application/vnd.docker.container.image.v1+json"
