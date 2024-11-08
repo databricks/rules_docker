@@ -203,28 +203,19 @@ EOF
   if [ "$(uname)" == "Darwin" ]; then
     echo "Cleaning xattrs from files on macOS..."
     for file in "${MISSING[@]}"; do
-      echo ">>> Cleaning for file ${file}"
       chmod +w "${file}"
       xattr -c "${file}"
     done
   fi
 
-  echo ">>> STEP 1"
-
   # We minimize reads / writes by symlinking the layers above
   # and then streaming exactly the layers we've established are
   # needed into the Docker daemon.
   # Explicitly ensure when generating final tar, we set --no-xattrs to avoid macOS xattr issues.
-  DOCKER_LOAD_OUTPUT_FILE=$(mktemp -t 2>/dev/null)
+  DOCKER_LOAD_OUTPUT_FILE=$(mktemp -t 2>/dev/null || mktemp -t rules_docker_load_output)
   echo "${DOCKER_LOAD_OUTPUT_FILE}" >> "${TEMP_FILES}"
-
-  echo ">>> STEP 2: ${DOCKER_LOAD_OUTPUT_FILE}"
-
   tar --no-xattrs -cPh "${MISSING[@]}" | tee image.tar | "${DOCKER}" load | tee "${DOCKER_LOAD_OUTPUT_FILE}"
-
-  echo ">>> STEP 3"
   IMAGE_ID=$(cat $DOCKER_LOAD_OUTPUT_FILE | awk -F'sha256:' '{print $2}')
-  echo "Tagging ${IMAGE_ID} as ${TAG}"
   "${DOCKER}" tag sha256:${IMAGE_ID} ${TAG}
 }
 
