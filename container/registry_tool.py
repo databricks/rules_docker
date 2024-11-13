@@ -19,6 +19,8 @@ import shutil
 import ssl
 import sys
 import tempfile
+import argparse
+import random
 
 from bazel_tools.tools.python.runfiles import runfiles
 
@@ -85,11 +87,16 @@ DIFF_MEDIA_TYPE = "application/vnd.docker.image.rootfs.diff.tar"
 MANIFEST_MEDIA_TYPE = "application/vnd.docker.distribution.manifest.v2+json"
 
 
+def _generate_random_string(length):
+    characters = 'abcdefghijklmnopqrstuvwxyz0123456789'
+    return ''.join(random.choice(characters) for _ in range(length))
+
+
 class DockerV2Registry:
-    def __init__(self, repo, config_path, *layers):
+    def __init__(self, config_path, *layers):
         r = runfiles.Create()
 
-        self._repo = repo
+        self._repo_name = "registry-%s.local" % _generate_random_string(10)
         self._registry_blobs = {}
         self._manifest = collections.OrderedDict(
             [
@@ -106,7 +113,9 @@ class DockerV2Registry:
                 ("layers", []),
             ]
         )
-        for layer_digest_path, layer_path in zip(layers[::2], layers[1::2]):
+        digests = layers[::2]
+        tarballs = layers[1::2]
+        for layer_digest_path, layer_path in zip(digests, tarballs):
             assert layer_digest_path == layer_path + ".sha256"
             blob_data = self._blob(
                 DIFF_MEDIA_TYPE,
@@ -133,14 +142,14 @@ class DockerV2Registry:
     def handler(self):
         _manifest_data = self._manifest_data
         _manifest_digest = self._manifest_digest
-        _repo = self._repo
+        _repo_name = self._repo_name
         _registry_blobs = self._registry_blobs
 
         class _RegistryHandler(http.server.BaseHTTPRequestHandler):
             def _is_manifest(self, path):
                 return path in (
-                    "/v2/%s/manifests/latest" % _repo,
-                    "/v2/%s/manifests/%s" % (_repo, _manifest_digest),
+                    "/v2/%s/manifests/latest" % _repo_name,
+                    "/v2/%s/manifests/%s" % (_repo_name, _manifest_digest),
                 )
 
             def _send_blob(self, head):
@@ -158,7 +167,7 @@ class DockerV2Registry:
                         self.wfile.write(_manifest_data)
                     return
 
-                if self.path.startswith("/v2/%s/blobs/sha256:" % _repo):
+                if self.path.startswith("/v2/%s/blobs/sha256:" % _repo_name):
                     _, _, digest = self.path.rpartition("/")
                     if digest in _registry_blobs:
                         media_type, path, size = _registry_blobs[digest]
@@ -183,12 +192,18 @@ class DockerV2Registry:
         return _RegistryHandler
 
     def image_ref(self):
-        return "%s@%s" % (self._repo, self._manifest_digest)
+        return "%s@%s" % (self._repo_name, self._manifest_digest)
 
 
 if __name__ == "__main__":
-    args = sys.argv[sys.argv.index("--") + 1 :]
-    registry = DockerV2Registry(*args[1:])
+    parser = argparse.ArgumentParser(
+        description="Simple local registry binary that allows docker clients to pull local image layers efficiently"
+    )
+    parser.add_argument('config_path', type=str, help='The path to the image config file')
+    parser.add_argument('layer_pairs', nargs='+', help='Layer tarballs and digests')
+    args = parser.parse_args()
+
+    registry = DockerV2Registry(args.config_path, *args.layer_pairs)
     httpd = http.server.HTTPServer(("127.0.0.1", 0), registry.handler())
     ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     with tempfile.NamedTemporaryFile() as certfile:
@@ -196,8 +211,9 @@ if __name__ == "__main__":
         certfile.flush()
         ctx.load_cert_chain(certfile=certfile.name)
     httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
-    with open(args[0], "a") as f:
-        f.write(
-            "%s/%s\n" % ("%s:%s" % httpd.socket.getsockname(), registry.image_ref())
-        )
+    
+    address_with_port = "%s:%s" % httpd.socket.getsockname()
+    pullable_image = "%s/%s" % (address_with_port, registry.image_ref())
+    print(pullable_image, flush=True)
+    
     httpd.serve_forever()

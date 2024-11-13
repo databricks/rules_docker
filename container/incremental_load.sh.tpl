@@ -59,17 +59,36 @@ function import_config() {
   local TAG="$1"
   shift 1
 
-  local registry_output="$(mktemp)"
-  echo "${registry_output}" >> "${TEMP_FILES}"
-  "${RUNFILES}/%{registry_tool}" -- "${registry_output}" "image" "$@" &
+  # Start the local registry binary on the background with all the layers we want to load
+  local registry_stdout="$(mktemp -t 2>/dev/null || mktemp -t 'rules_docker_registry_output')"
+  echo "${registry_stdout}" >> "${TEMP_FILES}"
+  "${RUNFILES}/%{registry_tool}" > ${registry_stdout} "$@" &
   local registry_pid=$!
 
-  # If we can do that, symlinking the layer diff blobs into the containerd
-  # content dir is a way to skip downloading them, and then keeping the
-  # downloaded copy. After creating the snapshot of the image, we don't
-  # need the layer blobs anymore, but there's no way to prune the content
-  # store. As they aren't really needed, it's OK if the symlinks
-  # eventually dangle.
+  # This is an optimization that only affects systems using containerd storage, namely RBE. 
+  # In this case, when we 'docker pull', the docker client will ask the snapshotter what to do.
+  # The snapshotter will either say:
+  #   1. I don't have this, go ahead and pull it; OR
+  #   2. I already have it, you don't need to pull anything.
+  # In case of (1.), we will store this into a place called 'content store'.
+  # When using sysbox docker-in-docker, this 'content store' is local to every daemon.
+  # Once we need to create a container, we will copy the image from the 'content store' into
+  # the snapshotter, which is shared across all daemons.
+  # In the worst case, if many actions try to pull the same image on a cold snapshotter,
+  # we would end up with one copy of the image in every daemon 'content store'.
+  # The trick: instead of actually copying the image to the content store, we just drop a symlink
+  # from the action inputs into the 'content store'. The docker client is smart enough to pull only
+  # what's missing on their content stores.
+  # To recap:
+  #   1. We symlink the image layers into the local daemon 'content store'.
+  #   2. We docker pull from our local registry.
+  #   3. The docker client will ask the snapshotter whether it needs to pull the image or not.
+  #   4. If the snapshotter says yes, we will start the pull operation.
+  #   5. The pull operation is a no-op due to (1.), i.e. all the layers are already present.
+  #   6. When we create a container, we load the image into the snapshotter.
+  #   7. The snapshotter will dedupe images in case of race conditions.
+  # Once loaded in the snapshotter, we don't care about the content store anymore. So it's fine
+  # if those symlinks dangle.
   if [[ -w "/var/lib/containerd/io.containerd.content.v1.content/blobs/sha256" ]]; then
     shift 1
     while test $# -gt 0
@@ -87,12 +106,25 @@ function import_config() {
     done
   fi
 
-  local ref=$(tail -f "${registry_output}" | head -1)
-  "${DOCKER}" pull "${ref}"
+  # Read the reference we can pull from
+  local ref=$(tail -f "${registry_stdout}" | head -n 1)
+  # Pull it
+  "${DOCKER}" pull "${ref}" >&2
+  # Kill the registry process for cleanup
   kill "${registry_pid}"
 
+  # Prints to keep compatibility on other scripts parsing this output
+  # since 'docker load' used to print the sha
+  local image_id=$("${DOCKER}" inspect --format "{{ .Id }}" "${ref}" | awk -F'sha256:' '{print $2}')
+  echo sha256:${image_id}
+
+  echo "Tagging ${image_id} as ${TAG}"
   "${DOCKER}" tag "${ref}" "${TAG}"
-  "${DOCKER}" rmi "${ref}"
+
+  # Clean up the temporary tag created by docker pull
+  # This DOES NOT delete the image, just the tag.
+  # By default, docker pull creates a tag based on the reference you pulled from.
+  "${DOCKER}" rmi "${ref}" >&2
 }
 
 function read_variables() {
