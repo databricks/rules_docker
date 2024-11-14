@@ -201,7 +201,7 @@ EOF
 
   # On macOS, clean all xattrs from the files we're going to load.
   if [ "$(uname)" == "Darwin" ]; then
-    echo "Cleaning xattrs from files on macOS..." > 2>&1
+    echo "Cleaning xattrs from files on macOS..." 2>&1
     for file in "${MISSING[@]}"; do
       chmod +w "${file}"
       xattr -c "${file}"
