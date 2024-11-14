@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -eu
+set -eux
 
 # This is a generated file that loads all docker layers built by "docker_build".
 
@@ -59,11 +59,8 @@ function import_config() {
   local TAG="$1"
   shift 1
 
-  # Start the local registry binary on the background with all the layers we want to load
-  local registry_stdout="$(mktemp -t 2>/dev/null || mktemp -t 'rules_docker_registry_output')"
-  echo "${registry_stdout}" >> "${TEMP_FILES}"
-  "${RUNFILES}/%{registry_tool}" > ${registry_stdout} "$@" &
-  local registry_pid=$!
+  # Save the arguments to forward to our loader tool
+  local config_and_layers=("$@")
 
   # This is an optimization that only affects systems using containerd storage, namely RBE. 
   # In this case, when we 'docker pull', the docker client will ask the snapshotter what to do.
@@ -106,12 +103,8 @@ function import_config() {
     done
   fi
 
-  # Read the reference we can pull from
-  local ref=$(tail -f "${registry_stdout}" | head -n 1)
-  # Pull it
-  "${DOCKER}" pull "${ref}" >&2
-  # Kill the registry process for cleanup
-  kill "${registry_pid}"
+  # Load and pull the image from the local registry
+  local ref=$("${RUNFILES}/%{loader_tool}" "${DOCKER}" "${config_and_layers[@]}")
 
   # Prints to keep compatibility on other scripts parsing this output
   # since 'docker load' used to print the sha

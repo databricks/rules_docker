@@ -21,6 +21,8 @@ import sys
 import tempfile
 import argparse
 import random
+import subprocess
+import threading
 
 from bazel_tools.tools.python.runfiles import runfiles
 
@@ -197,12 +199,14 @@ class DockerV2Registry:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Simple local registry binary that allows docker clients to pull local image layers efficiently"
+        description="Load images to the docker daemon efficiently"
     )
+    parser.add_argument('docker_binary', type=str, help='The path to the docker binary')
     parser.add_argument('config_path', type=str, help='The path to the image config file')
-    parser.add_argument('layer_pairs', nargs='+', help='Layer tarballs and digests')
+    parser.add_argument('layer_pairs', nargs='+', help='Layer digests and tarballs')
     args = parser.parse_args()
 
+    docker_binary = args.docker_binary
     registry = DockerV2Registry(args.config_path, *args.layer_pairs)
     httpd = http.server.HTTPServer(("127.0.0.1", 0), registry.handler())
     ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -214,6 +218,12 @@ if __name__ == "__main__":
     
     address_with_port = "%s:%s" % httpd.socket.getsockname()
     pullable_image = "%s/%s" % (address_with_port, registry.image_ref())
-    print(pullable_image, flush=True)
     
-    httpd.serve_forever()
+    def start_server():
+        httpd.serve_forever()
+    
+    server_thread = threading.Thread(target=start_server, daemon=True)
+    server_thread.start()
+
+    subprocess.check_call([docker_binary, "pull", pullable_image], stdout=sys.stderr, stderr=sys.stderr)
+    print(pullable_image, flush=True)

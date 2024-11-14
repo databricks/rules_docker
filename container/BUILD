@@ -78,8 +78,8 @@ py_binary(
 )
 
 py_binary(
-    name = "registry_tool",
-    srcs = ["registry_tool.py"],
+    name = "loader_tool",
+    srcs = ["loader_tool.py"],
     deps = ["@bazel_tools//tools/python/runfiles"]
 )
 

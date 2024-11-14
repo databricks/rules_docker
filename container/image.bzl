@@ -316,7 +316,7 @@ def _impl(ctx, files=None, file_map=None, empty_files=None, directory=None,
   runfiles = ctx.runfiles(
       files = unzipped_layers + diff_ids + [config_file, config_digest] +
       ([container_parts["legacy"]] if container_parts["legacy"] else []))
-  runfiles = runfiles.merge(ctx.attr.registry_tool[DefaultInfo].default_runfiles)
+  runfiles = runfiles.merge(ctx.attr._loader_tool[DefaultInfo].default_runfiles)
   return struct(runfiles = runfiles,
                 files = depset([ctx.outputs.layer]),
                 container_parts = container_parts)
