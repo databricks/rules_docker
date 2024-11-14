@@ -14,8 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO: DO NOT COMMIT -x
-set -eux
+set -eu
 
 # This is a generated file that loads all docker layers built by "docker_build".
 

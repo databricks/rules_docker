@@ -214,7 +214,7 @@ if __name__ == "__main__":
         certfile.write(SSL_CERT)
         certfile.flush()
         ctx.load_cert_chain(certfile=certfile.name)
-    # httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+    httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
     
     address_with_port = "%s:%s" % httpd.socket.getsockname()
     pullable_image = "%s/%s" % (address_with_port, registry.image_ref())
