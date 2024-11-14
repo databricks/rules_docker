@@ -55,7 +55,176 @@ function join_by() {
   echo "$*"
 }
 
+function sequence_exists() {
+  local diff_ids="$@"
+  cat > config.json <<EOF
+{
+    "architecture": "amd64",
+    "author": "Bazel",
+    "config": {},
+    "created": "0001-01-01T00:00:00Z",
+    "history": [
+        {
+            "author": "Bazel",
+            "created": "0001-01-01T00:00:00Z",
+            "created_by": "bazel build ..."
+        }
+    ],
+    "os": "linux",
+    "rootfs": {
+        "diff_ids": [$(join_by , ${diff_ids[@]})],
+        "type": "layers"
+    }
+}
+EOF
+
+  cat > manifest.json <<EOF
+[{
+   "Config": "config.json",
+   "Layers": [$(join_by , ${diff_ids[@]})],
+   "RepoTags": []
+}]
+EOF
+
+  set -o pipefail
+  tar --no-xattrs -c config.json manifest.json | "${DOCKER}" load 2>/dev/null | cut -d':' -f 2- >> "${TEMP_IMAGES}"
+}
+
+function find_diffbase() {
+  local name="$1"
+  shift
+
+  NEW_DIFF_IDS=()
+  while test $# -gt 0
+  do
+    local diff_id="$(cat "${RUNFILES}/$1")"
+    # Throwaway the layer, we only want diff id.
+    shift 2
+
+    NEW_DIFF_IDS+=("${diff_id}")
+  done
+
+  TOTAL_DIFF_IDS=($(cat "${name}" | python -mjson.tool | \
+      grep -E '^ +"sha256:' | cut -d'"' -f 2 | cut -d':' -f 2))
+
+  LEGACY_COUNT=$((${#TOTAL_DIFF_IDS[@]} - ${#NEW_DIFF_IDS[@]}))
+  echo "${TOTAL_DIFF_IDS[@]:0:${LEGACY_COUNT}}"
+}
+
+function import_config_macos() {
+  local TAG="$1"
+  shift 1
+
+  # Create an image from the image configuration file.
+  local name="${RUNFILES}/$1"
+  shift 1
+
+  local tmp_dir="$(mktemp -d)"
+  echo "${tmp_dir}" >> "${TEMP_FILES}"
+
+  cd "${tmp_dir}"
+
+  # Docker elides layer reads from the tarball when it
+  # already has a copy of the layer with the same basis
+  # as it has within the tarball.  This means that once
+  # we have found the lowest layer in our image of which
+  # Docker is unaware we must load all of the remaining
+  # layers.  So to determine existence, iterate through
+  # the layers attempting to load the image without it's
+  # tarball.  As soon as one fails, break and synthesize
+  # a "docker save" tarball of all of the remaining layers.
+
+  # Find the cut-off point of layers we may
+  # already know about, and setup out arrays.
+  DIFF_IDS=()
+  ALL_QUOTED=()
+  for diff_id in $(find_diffbase "${name}" "$@");
+  do
+    DIFF_IDS+=("\"sha256:${diff_id}\"")
+    ALL_QUOTED+=("\"${diff_id}.tar\"")
+  done
+
+  # Starting from our legacy diffbase, figure out which
+  # additional layers the Docker daemon already has.
+  while test $# -gt 0
+  do
+    local diff_id="$(cat "${RUNFILES}/$1")"
+    local layer="${RUNFILES}/$2"
+
+    DIFF_IDS+=("\"sha256:${diff_id}\"")
+
+    if ! sequence_exists "${DIFF_IDS[@]}"; then
+      # This sequence of diff-ids has not been seen,
+      # so we must start by making this layer part of
+      # the tarball we load.
+      break
+    fi
+
+    ALL_QUOTED+=("\"${diff_id}.tar\"")
+    shift 2
+  done
+
+  # Set up the list of layers we actually need to load,
+  # from the cut-off established above.
+  MISSING=()
+  while test $# -gt 0
+  do
+    local diff_id="$(cat "${RUNFILES}/$1")"
+    local layer="${RUNFILES}/$2"
+    shift 2
+
+    ALL_QUOTED+=("\"${diff_id}.tar\"")
+
+    # Only create the link if it doesn't exist.
+    # Only add files to MISSING once.
+    if [ ! -f "${diff_id}.tar" ]; then
+      # If on macOS, copy as we need to remove xattrs (otherwise source tar is readonly). Otherwise, use symlink.
+      if [ "$(uname)" == "Darwin" ]; then
+        cp "${layer}" "${diff_id}.tar"
+      else
+        ln -s "${layer}" "${diff_id}.tar"
+      fi
+      MISSING+=("${diff_id}.tar")
+    fi
+  done
+
+  cp "${name}" config.json
+  cat > manifest.json <<EOF
+[{
+   "Config": "config.json",
+   "Layers": [$(join_by , ${ALL_QUOTED[@]})],
+   "RepoTags": []
+}]
+EOF
+
+  MISSING+=("config.json" "manifest.json")
+
+  # On macOS, clean all xattrs from the files we're going to load.
+  if [ "$(uname)" == "Darwin" ]; then
+    echo "Cleaning xattrs from files on macOS..."
+    for file in "${MISSING[@]}"; do
+      chmod +w "${file}"
+      xattr -c "${file}"
+    done
+  fi
+
+  # We minimize reads / writes by symlinking the layers above
+  # and then streaming exactly the layers we've established are
+  # needed into the Docker daemon.
+  # Explicitly ensure when generating final tar, we set --no-xattrs to avoid macOS xattr issues.
+  DOCKER_LOAD_OUTPUT_FILE=$(mktemp -t 2>/dev/null || mktemp -t rules_docker_load_output)
+  echo "${DOCKER_LOAD_OUTPUT_FILE}" >> "${TEMP_FILES}"
+  tar --no-xattrs -cPh "${MISSING[@]}" | tee image.tar | "${DOCKER}" load | tee "${DOCKER_LOAD_OUTPUT_FILE}"
+  IMAGE_ID=$(cat $DOCKER_LOAD_OUTPUT_FILE | awk -F'sha256:' '{print $2}')
+  echo "Tagging ${IMAGE_ID} as ${TAG}"
+  "${DOCKER}" tag sha256:${IMAGE_ID} ${TAG}
+}
+
 function import_config() {
+  if [ "$(uname)" == "Darwin" ]; then
+    import_config_macos "$@"
+    return
+  fi
   local TAG="$1"
   shift 1
 
