@@ -25,6 +25,7 @@ import subprocess
 import threading
 import time
 import urllib.request
+import platform
 
 from bazel_tools.tools.python.runfiles import runfiles
 
@@ -221,6 +222,7 @@ if __name__ == "__main__":
 
     docker_binary = args.docker_binary
     registry = DockerV2Registry(args.config_path, *args.layer_pairs)
+    listen_address = "0.0.0.0" if platform.system() == "Darwin" else "127.0.0.1"
     httpd = http.server.HTTPServer(("127.0.0.1", 0), registry.handler())
     ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     with tempfile.NamedTemporaryFile() as certfile:
