@@ -23,6 +23,8 @@ import argparse
 import random
 import subprocess
 import threading
+import time
+import urllib.request
 
 from bazel_tools.tools.python.runfiles import runfiles
 
@@ -197,6 +199,17 @@ class DockerV2Registry:
         return "%s@%s" % (self._repo_name, self._manifest_digest)
 
 
+ssl_context = ssl._create_unverified_context()
+
+
+def is_server_ready(url):
+    try:
+        with urllib.request.urlopen(url, context=ssl_context) as response:
+            return response.status == 200
+    except:
+        return False
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Load images to the docker daemon efficiently"
@@ -224,6 +237,21 @@ if __name__ == "__main__":
     
     server_thread = threading.Thread(target=start_server, daemon=True)
     server_thread.start()
+
+    tries = 5
+    backoff_secs = 1
+    server_running = False
+    endpoint = "https://%s/v2/" % address_with_port
+    for _ in range(tries):
+        if is_server_ready(endpoint):
+            server_running = True
+            break
+        else:
+            time.sleep(backoff_secs)
+            backoff_secs = 2 * backoff_secs
+
+    if not server_running:
+        raise Exception("Local registry is not listening on %s" % address_with_port)
 
     subprocess.check_call([docker_binary, "pull", pullable_image], stdout=sys.stderr, stderr=sys.stderr)
     print(pullable_image, flush=True)
