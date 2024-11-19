@@ -103,18 +103,14 @@ class DockerV2Registry:
 
         self._repo_name = "registry-%s.local" % _generate_random_string(10)
         self._registry_blobs = {}
+        with open(r.Rlocation(os.path.normpath(config_path))) as config:
+            self._config = json.load(config, object_pairs_hook=collections.OrderedDict)
+        self._config["rootfs"]["diff_ids"] = []
         self._manifest = collections.OrderedDict(
             [
                 ("schemaVersion", 2),
                 ("mediaType", MANIFEST_MEDIA_TYPE),
-                (
-                    "config",
-                    self._blob(
-                        CONFIG_MEDIA_TYPE,
-                        r.Rlocation(os.path.normpath(config_path)),
-                        r.Rlocation(os.path.normpath(config_path + ".sha256")),
-                    ),
-                ),
+                ("config", None),
                 ("layers", []),
             ]
         )
@@ -128,6 +124,15 @@ class DockerV2Registry:
                 r.Rlocation(os.path.normpath(layer_digest_path)),
             )
             self._manifest["layers"].append(blob_data)
+            self._config["rootfs"]["diff_ids"].append(blob_data["digest"])
+
+        self._config_data = json.dumps(self._config).encode() + b"\n"
+        self._config_digest = "sha256:" + hashlib.sha256(self._config_data).hexdigest()
+        self._manifest["config"] = {
+            "mediaType": CONFIG_MEDIA_TYPE,
+            "digest": self._config_digest,
+            "size": len(self._config_data),
+        }
         self._manifest_data = json.dumps(self._manifest, separators=(",", ":")).encode()
         self._manifest_digest = (
             "sha256:" + hashlib.sha256(self._manifest_data).hexdigest()
@@ -145,12 +150,17 @@ class DockerV2Registry:
         }
 
     def handler(self):
+        _config_data = self._config_data
+        _config_digest = self._config_digest
         _manifest_data = self._manifest_data
         _manifest_digest = self._manifest_digest
         _repo_name = self._repo_name
         _registry_blobs = self._registry_blobs
 
         class _RegistryHandler(http.server.BaseHTTPRequestHandler):
+            def _is_config(self, path):
+                return path == "/v2/%s/blobs/%s" % (_repo_name, _config_digest)
+
             def _is_manifest(self, path):
                 return path in (
                     "/v2/%s/manifests/latest" % _repo_name,
@@ -170,6 +180,15 @@ class DockerV2Registry:
                     self.end_headers()
                     if not head:
                         self.wfile.write(_manifest_data)
+                    return
+
+                if self._is_config(self.path):
+                    self.send_response(http.HTTPStatus.OK)
+                    self.send_header("Content-Type", CONFIG_MEDIA_TYPE)
+                    self.send_header("Content-Length", str(len(_config_data)))
+                    self.end_headers()
+                    if not head:
+                        self.wfile.write(_config_data)
                     return
 
                 if self.path.startswith("/v2/%s/blobs/sha256:" % _repo_name):
