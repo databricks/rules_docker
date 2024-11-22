@@ -103,18 +103,14 @@ class DockerV2Registry:
 
         self._repo_name = "registry-%s.local" % _generate_random_string(10)
         self._registry_blobs = {}
+        with open(r.Rlocation(os.path.normpath(config_path))) as config:
+            self._config = json.load(config, object_pairs_hook=collections.OrderedDict)
+        self._config["rootfs"]["diff_ids"] = []
         self._manifest = collections.OrderedDict(
             [
                 ("schemaVersion", 2),
                 ("mediaType", MANIFEST_MEDIA_TYPE),
-                (
-                    "config",
-                    self._blob(
-                        CONFIG_MEDIA_TYPE,
-                        r.Rlocation(os.path.normpath(config_path)),
-                        r.Rlocation(os.path.normpath(config_path + ".sha256")),
-                    ),
-                ),
+                ("config", None),
                 ("layers", []),
             ]
         )
@@ -128,6 +124,15 @@ class DockerV2Registry:
                 r.Rlocation(os.path.normpath(layer_digest_path)),
             )
             self._manifest["layers"].append(blob_data)
+            self._config["rootfs"]["diff_ids"].append(blob_data["digest"])
+
+        self._config_data = json.dumps(self._config).encode() + b"\n"
+        self._config_digest = "sha256:" + hashlib.sha256(self._config_data).hexdigest()
+        self._manifest["config"] = {
+            "mediaType": CONFIG_MEDIA_TYPE,
+            "digest": self._config_digest,
+            "size": len(self._config_data),
+        }
         self._manifest_data = json.dumps(self._manifest, separators=(",", ":")).encode()
         self._manifest_digest = (
             "sha256:" + hashlib.sha256(self._manifest_data).hexdigest()
@@ -145,12 +150,17 @@ class DockerV2Registry:
         }
 
     def handler(self):
+        _config_data = self._config_data
+        _config_digest = self._config_digest
         _manifest_data = self._manifest_data
         _manifest_digest = self._manifest_digest
         _repo_name = self._repo_name
         _registry_blobs = self._registry_blobs
 
         class _RegistryHandler(http.server.BaseHTTPRequestHandler):
+            def _is_config(self, path):
+                return path == "/v2/%s/blobs/%s" % (_repo_name, _config_digest)
+
             def _is_manifest(self, path):
                 return path in (
                     "/v2/%s/manifests/latest" % _repo_name,
@@ -170,6 +180,15 @@ class DockerV2Registry:
                     self.end_headers()
                     if not head:
                         self.wfile.write(_manifest_data)
+                    return
+
+                if self._is_config(self.path):
+                    self.send_response(http.HTTPStatus.OK)
+                    self.send_header("Content-Type", CONFIG_MEDIA_TYPE)
+                    self.send_header("Content-Length", str(len(_config_data)))
+                    self.end_headers()
+                    if not head:
+                        self.wfile.write(_config_data)
                     return
 
                 if self.path.startswith("/v2/%s/blobs/sha256:" % _repo_name):
@@ -204,11 +223,22 @@ ssl_context = ssl._create_unverified_context()
 
 
 def is_server_ready(url):
-    try:
-        with urllib.request.urlopen(url, context=ssl_context) as response:
-            return response.status == 200
-    except:
-        return False
+    with urllib.request.urlopen(url, context=ssl_context) as response:
+        if response.status == 200:
+            return True
+        raise Exception("Server not ready yet, status code: %d" % response.status)
+
+
+def retry_with_backoff(fn, friendly_name, max_retries=5, initial_backoff_secs=1):
+    backoff_secs = initial_backoff_secs
+    for i in range(max_retries):
+        try:
+            fn()
+        except Exception as e:
+            print("%s failed with" % friendly_name, e, file=sys.stderr)
+            print("Will retry %d more time(s)" % (max_retries-i-1), file=sys.stderr)
+            time.sleep(backoff_secs)
+            backoff_secs = 2 * backoff_secs
 
 
 if __name__ == "__main__":
@@ -222,7 +252,7 @@ if __name__ == "__main__":
 
     docker_binary = args.docker_binary
     registry = DockerV2Registry(args.config_path, *args.layer_pairs)
-    httpd = http.server.HTTPServer(("127.0.0.1", 0), registry.handler())
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), registry.handler())
     ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     with tempfile.NamedTemporaryFile() as certfile:
         certfile.write(SSL_CERT)
@@ -240,20 +270,15 @@ if __name__ == "__main__":
     server_thread = threading.Thread(target=start_server, daemon=True)
     server_thread.start()
 
-    tries = 5
-    backoff_secs = 1
-    server_running = False
     endpoint = "https://%s/v2/" % address_with_port
-    for _ in range(tries):
-        if is_server_ready(endpoint):
-            server_running = True
-            break
-        else:
-            time.sleep(backoff_secs)
-            backoff_secs = 2 * backoff_secs
+    retry_with_backoff(
+        lambda: is_server_ready(endpoint),
+        "Assert server running on %s" % endpoint
+    )
 
-    if not server_running:
-        raise Exception("Local registry is not listening on %s" % address_with_port)
+    retry_with_backoff(
+        lambda: subprocess.check_call([docker_binary, "pull", pullable_image], stdout=sys.stderr, stderr=sys.stderr),
+        friendly_name="Docker pull %s" % pullable_image
+    )
 
-    subprocess.check_call([docker_binary, "pull", pullable_image], stdout=sys.stderr, stderr=sys.stderr)
     print(pullable_image, flush=True)

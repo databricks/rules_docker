@@ -273,7 +273,7 @@ function import_config() {
   fi
 
   # Load and pull the image from the local registry
-  local ref=$("${RUNFILES}/%{loader_tool}" "${DOCKER}" "${config_and_layers[@]}")
+  local ref=$(RUNFILES_DIR="${RUNFILES}" RUNFILES_MANIFEST_FILE= "${RUNFILES}/%{loader_tool}" "${DOCKER}" "${config_and_layers[@]}")
 
   # Prints to keep compatibility on other scripts parsing this output
   # since 'docker load' used to print the sha
